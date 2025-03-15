@@ -495,24 +495,66 @@ function App() {
         });
       }
 
-      // Collect all files first
-      setStatus('Collecting files...');
-      const allFiles = [];
-      const seenFiles = new Set();
-
-      for await (const file of getFiles(dirHandle)) {
-        if (!seenFiles.has(file.relativePath)) {
-          seenFiles.add(file.relativePath);
-          const existingPhoto = photoMap.get(file.relativePath);
-          if (!existingPhoto || existingPhoto.lastModified !== file.lastModified) {
-            allFiles.push(file);
+      // First pass: count total files
+      setStatus('Counting files...');
+      let totalFiles = 0;
+      let countedFiles = 0;
+      const countFiles = async (handle, path = '') => {
+        for await (const entry of handle.values()) {
+          if (entry.kind === 'file') {
+            if (entry.name.toLowerCase().match(/\.(jpg|jpeg|png)$/)) {
+              totalFiles++;
+              countedFiles++;
+              setProgress(Math.round((countedFiles / totalFiles) * 100));
+              setStatus(`Counting files... (${countedFiles} found)`);
+            }
+          } else if (entry.kind === 'directory') {
+            await countFiles(entry, path ? `${path}/${entry.name}` : entry.name);
           }
         }
-      }
+      };
+      await countFiles(dirHandle);
+      setTotalPhotos(totalFiles);
+
+      // Reset progress for file collection phase
+      setProgress(0);
+      setStatus('Collecting files...');
+
+      // Second pass: collect files with progress
+      const allFiles = [];
+      const seenFiles = new Set();
+      let collectedFiles = 0;
+
+      const collectFiles = async (handle, path = '') => {
+        for await (const entry of handle.values()) {
+          if (entry.kind === 'file') {
+            if (entry.name.toLowerCase().match(/\.(jpg|jpeg|png)$/)) {
+              const file = await entry.getFile();
+              file.relativePath = path ? `${path}/${entry.name}` : entry.name;
+              
+              if (!seenFiles.has(file.relativePath)) {
+                seenFiles.add(file.relativePath);
+                const existingPhoto = photoMap.get(file.relativePath);
+                if (!existingPhoto || existingPhoto.lastModified !== file.lastModified) {
+                  allFiles.push(file);
+                }
+              }
+              
+              collectedFiles++;
+              setProgress(Math.round((collectedFiles / totalFiles) * 100));
+              setProcessedPhotos(collectedFiles);
+            }
+          } else if (entry.kind === 'directory') {
+            const newPath = path ? `${path}/${entry.name}` : entry.name;
+            await collectFiles(entry, newPath);
+          }
+        }
+      };
+
+      await collectFiles(dirHandle);
 
       // Sort files by relative path for consistent processing order
       allFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
-      setTotalPhotos(allFiles.length);
       
       if (allFiles.length === 0) {
         setStatus('No new or modified photos to scan');
@@ -524,6 +566,11 @@ function App() {
         }
         return;
       }
+
+      // Reset progress for photo processing phase
+      setProgress(0);
+      setTotalPhotos(allFiles.length);
+      setProcessedPhotos(0);
 
       // Process files in parallel and save thumbnails immediately
       setStatus('Processing photos and saving thumbnails...');
