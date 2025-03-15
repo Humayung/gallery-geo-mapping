@@ -424,6 +424,11 @@ function App() {
 
   // Initialize intersection observer
   useEffect(() => {
+    // Cleanup previous observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
     observerRef.current = new IntersectionObserver(
       (entries) => {
         entries.forEach(entry => {
@@ -431,36 +436,21 @@ function App() {
             const photoIndex = parseInt(entry.target.dataset.index);
             const photo = photos[photoIndex];
             if (photo && !thumbnailCache.has(photo.relativePath) && dirHandleRef.current) {
-              handlePhotoSelectMemoized(photoIndex, false); // Don't update view for lazy loading
+              handleThumbnailNeeded(photo);
             }
           }
         });
       },
-      { threshold: 0.1 }
+      { 
+        root: document.querySelector('.photo-items'),
+        rootMargin: '50px',
+        threshold: 0.1 
+      }
     );
 
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
-  }, [photos, thumbnailCache, handlePhotoSelectMemoized]);
-
-  // Load initial visible thumbnails
-  useEffect(() => {
-    if (photos.length > 0 && dirHandleRef.current) {
-      // Load first N thumbnails immediately
-      const initialLoadCount = Math.min(20, photos.length);
-      for (let i = 0; i < initialLoadCount; i++) {
-        handlePhotoSelectMemoized(i, false); // Don't update view for initial loading
-      }
-    }
-  }, [photos, handlePhotoSelectMemoized]);
-
-  // Update observer entries when photos change
-  useEffect(() => {
+    // Observe all existing photo items
     photoRefs.current.forEach((element) => {
-      if (observerRef.current && element) {
+      if (element) {
         observerRef.current.observe(element);
       }
     });
@@ -470,7 +460,7 @@ function App() {
         observerRef.current.disconnect();
       }
     };
-  }, [photos]);
+  }, [photos, thumbnailCache, handleThumbnailNeeded]);
 
   // Request permission for the directory
   const requestPermission = async (dirHandle) => {
@@ -842,11 +832,18 @@ function App() {
         <div className="photos-list">
           <h3>Photos with GPS Data ({photos.length})</h3>
           <p className="help-text">Draw a rectangle on the map to select and download photos from that area.</p>
-          <div className="photo-items">
+          <div className="photo-items" style={{ maxHeight: 'calc(100vh - 150px)', overflowY: 'auto' }}>
             {photos.map((photo, index) => (
               <div 
-                key={index}
-                ref={el => photoRefs.current.set(index, el)}
+                key={photo.relativePath}
+                ref={el => {
+                  if (el) {
+                    photoRefs.current.set(index, el);
+                    if (observerRef.current) {
+                      observerRef.current.observe(el);
+                    }
+                  }
+                }}
                 data-index={index}
                 className={`photo-item ${selectedPhoto === index ? 'selected' : ''}`}
                 onClick={() => handlePhotoSelectMemoized(index)}
