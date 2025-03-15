@@ -265,7 +265,172 @@ function ScanProgress({ status, progress, processedPhotos, totalPhotos }) {
   );
 }
 
-const PhotoPopup = React.memo(({ photo, thumbnail, onPhotoSelect, index, onThumbnailNeeded }) => {
+const ImageViewer = React.memo(({ photo, onClose, dirHandle, photos, onNavigate, mapRef }) => {
+  const [loading, setLoading] = useState(true);
+  const [imageUrl, setImageUrl] = useState(null);
+  const [error, setError] = useState(null);
+  const [visited, setVisited] = useState([photo]); // Initialize with current photo
+
+  // Update map view and show popup for the given photo
+  const updateMapView = (photo) => {
+    if (mapRef.current) {
+      // Set map view to the photo's location
+      mapRef.current.setView([photo.latitude, photo.longitude], 12);
+
+      // Find and open the marker's popup
+      mapRef.current.eachLayer((layer) => {
+        if (layer instanceof L.Marker) {
+          const markerLatLng = layer.getLatLng();
+          if (markerLatLng.lat === photo.latitude && markerLatLng.lng === photo.longitude) {
+            layer.openPopup();
+          }
+        }
+      });
+    }
+  };
+
+  // Find nearest unvisited photo based on location
+  const findNearestUnvisitedPhoto = (currentPhoto) => {
+    const currentLat = currentPhoto.latitude;
+    const currentLng = currentPhoto.longitude;
+    
+    // Create array of unvisited photos with their distances
+    const photosWithDistance = photos
+      .filter(p => !visited.some(v => v.relativePath === p.relativePath)) // Exclude visited photos
+      .map(p => ({
+        photo: p,
+        distance: Math.sqrt(
+          Math.pow(p.latitude - currentLat, 2) + 
+          Math.pow(p.longitude - currentLng, 2)
+        )
+      }));
+
+    // Sort by distance and return the nearest photo
+    photosWithDistance.sort((a, b) => a.distance - b.distance);
+    return photosWithDistance[0]?.photo || null;
+  };
+
+  const handleNext = () => {
+    const nearest = findNearestUnvisitedPhoto(photo);
+    if (nearest) {
+      setVisited([...visited, nearest]); // Add to visited
+      updateMapView(nearest);
+      onNavigate(nearest);
+    }
+  };
+
+  const handlePrev = () => {
+    if (visited.length > 1) {
+      const newVisited = [...visited];
+      newVisited.pop(); // Remove current photo
+      const prevPhoto = newVisited[newVisited.length - 1]; // Get last photo from history
+      setVisited(newVisited);
+      updateMapView(prevPhoto);
+      onNavigate(prevPhoto);
+    }
+  };
+
+  // Update map when component mounts
+  useEffect(() => {
+    updateMapView(photo);
+  }, [photo]);
+
+  useEffect(() => {
+    const loadFullImage = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const pathParts = photo.relativePath.split('/');
+        let currentDirHandle = dirHandle;
+        
+        if (pathParts.length > 1) {
+          for (let i = 0; i < pathParts.length - 1; i++) {
+            currentDirHandle = await currentDirHandle.getDirectoryHandle(pathParts[i]);
+          }
+        }
+        
+        const fileHandle = await currentDirHandle.getFileHandle(photo.name);
+        const file = await fileHandle.getFile();
+        const url = URL.createObjectURL(file);
+        setImageUrl(url);
+      } catch (err) {
+        console.error('Error loading full resolution image:', err);
+        setError('Failed to load image');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadFullImage();
+
+    return () => {
+      if (imageUrl) {
+        URL.revokeObjectURL(imageUrl);
+      }
+    };
+  }, [photo, dirHandle]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      onClose();
+    } else if (e.key === 'ArrowLeft') {
+      handlePrev();
+    } else if (e.key === 'ArrowRight') {
+      handleNext();
+    }
+  };
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [visited]); // Only depend on visited array for navigation
+
+  return (
+    <div className="image-viewer-overlay" onClick={onClose}>
+      <div className="image-viewer-content" onClick={e => e.stopPropagation()}>
+        <button className="image-viewer-close" onClick={onClose}>×</button>
+        
+        {visited.length > 1 && (
+          <button 
+            className="image-viewer-nav image-viewer-prev"
+            onClick={handlePrev}
+          >
+            ‹
+          </button>
+        )}
+        
+        {findNearestUnvisitedPhoto(photo) && (
+          <button 
+            className="image-viewer-nav image-viewer-next"
+            onClick={handleNext}
+          >
+            ›
+          </button>
+        )}
+
+        {loading ? (
+          <div className="loading-spinner" />
+        ) : error ? (
+          <div className="image-viewer-error">{error}</div>
+        ) : (
+          <img
+            src={imageUrl}
+            alt={photo.name}
+            className="image-viewer-image"
+          />
+        )}
+        <div className="image-viewer-info">
+          {photo.name} - {new Date(photo.date).toLocaleString()}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const PhotoPopup = React.memo(({ photo, thumbnail, onPhotoSelect, index, onThumbnailNeeded, onViewFullImage }) => {
   React.useEffect(() => {
     if (!thumbnail && onThumbnailNeeded) {
       onThumbnailNeeded(photo);
@@ -280,7 +445,10 @@ const PhotoPopup = React.memo(({ photo, thumbnail, onPhotoSelect, index, onThumb
             src={thumbnail}
             alt={photo.name}
             className="popup-image"
-            onClick={() => onPhotoSelect(index, false)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onViewFullImage(photo);
+            }}
           />
         </div>
       ) : (
@@ -306,7 +474,8 @@ const PhotosMap = React.memo(({
   onAreaSelect, 
   mapRef, 
   featureGroupRef,
-  onThumbnailNeeded
+  onThumbnailNeeded,
+  onViewFullImage
 }) => {
   return (
     <MapContainer
@@ -352,6 +521,7 @@ const PhotosMap = React.memo(({
                 thumbnail={thumbnailCache.get(photo.relativePath)}
                 onPhotoSelect={onPhotoSelect}
                 onThumbnailNeeded={onThumbnailNeeded}
+                onViewFullImage={onViewFullImage}
                 index={index}
               />
             </Popup>
@@ -379,6 +549,7 @@ function App() {
   const [thumbnailCache, setThumbnailCache] = useState(new Map());
   const observerRef = useRef(null);
   const photoRefs = useRef(new Map());
+  const [selectedFullImage, setSelectedFullImage] = useState(null);
   
   // Initialize worker pool
   useEffect(() => {
@@ -879,10 +1050,22 @@ function App() {
           onPhotoSelect={handlePhotoSelectMemoized}
           onAreaSelect={handleAreaSelectMemoized}
           onThumbnailNeeded={handleThumbnailNeeded}
+          onViewFullImage={setSelectedFullImage}
           mapRef={mapRef}
           featureGroupRef={featureGroupRef}
         />
       </div>
+
+      {selectedFullImage && (
+        <ImageViewer
+          photo={selectedFullImage}
+          photos={photos}
+          onClose={() => setSelectedFullImage(null)}
+          onNavigate={setSelectedFullImage}
+          dirHandle={dirHandleRef.current}
+          mapRef={mapRef}
+        />
+      )}
     </div>
   );
 }

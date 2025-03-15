@@ -1,9 +1,7 @@
 .App {
   display: flex;
-  flex-direction: row;
   height: 100vh;
-  width: 100vw;
-  overflow: hidden;
+  background-color: #f5f5f5;
 }
 
 .App-logo {
@@ -42,198 +40,252 @@
 }
 
 .sidebar {
-  width: 300px;
+  width: 400px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #ddd;
-  background: #fff;
+  background-color: white;
+  box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+  z-index: 1;
 }
 
 .controls {
   padding: 20px;
-  background-color: #f5f5f5;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid #eee;
 }
 
-.directory-input {
+.controls button {
   width: 100%;
-  padding: 8px;
-  font-size: 14px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  margin-bottom: 10px;
-}
-
-button {
-  width: 100%;
-  padding: 8px 16px;
-  font-size: 14px;
-  background-color: #007bff;
+  padding: 12px;
+  background-color: #2196F3;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
+  font-size: 16px;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
 
-button:disabled {
-  background-color: #ccc;
+.controls button:hover {
+  background-color: #1976D2;
+}
+
+.controls button:disabled {
+  background-color: #BDBDBD;
   cursor: not-allowed;
 }
 
-.error {
-  color: #dc3545;
-  margin-top: 10px;
-  font-size: 14px;
+.scanning-message {
+  margin-top: 15px;
+  padding: 15px;
+  background-color: #E3F2FD;
+  border-radius: 6px;
+  color: #1565C0;
 }
 
-.map-container {
-  flex: 1;
-  height: 100vh;
-  position: relative;
+.error {
+  margin-top: 15px;
+  padding: 15px;
+  background-color: #FFEBEE;
+  border-radius: 6px;
+  color: #C62828;
+}
+
+.downloading {
+  margin-top: 15px;
+  padding: 15px;
+  background-color: #E8F5E9;
+  border-radius: 6px;
+  color: #2E7D32;
 }
 
 .photos-list {
   flex: 1;
-  overflow-y: auto;
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .photos-list h3 {
-  margin: 0 0 15px 0;
-  font-size: 16px;
+  margin: 0;
+  padding: 20px;
   color: #333;
 }
 
-.scanning-message {
+.help-text {
+  margin: 0;
+  padding: 0 20px 10px;
   color: #666;
-  font-style: italic;
+  font-size: 14px;
 }
 
 .photo-items {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 10px;
 }
 
 .photo-item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background-color: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: transform 0.2s, box-shadow 0.2s;
   cursor: pointer;
-  transition: all 0.2s ease;
-  background: #fff;
 }
 
 .photo-item:hover {
-  background-color: #f8f9fa;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
 .photo-item.selected {
-  background-color: #e3f2fd;
-  border-color: #2196f3;
+  background-color: #E3F2FD;
+  border: 2px solid #2196F3;
 }
 
-.photo-item .thumbnail {
-  width: 60px;
-  height: 60px;
+.thumbnail {
+  width: 80px;
+  height: 80px;
   object-fit: cover;
   border-radius: 4px;
-  margin-right: 10px;
-  flex-shrink: 0;
+  margin-right: 15px;
+}
+
+.thumbnail-placeholder {
+  width: 80px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  margin-right: 15px;
+  color: #666;
+  font-size: 14px;
 }
 
 .photo-info {
   flex: 1;
-  min-width: 0; /* Allows text truncation to work */
+  min-width: 0;
 }
 
 .photo-name {
   font-weight: 600;
-  margin-bottom: 2px;
   color: #333;
+  margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .photo-path {
-  font-size: 12px;
   color: #666;
-  margin-bottom: 2px;
+  font-size: 14px;
+  font-family: monospace;
+  margin-bottom: 4px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: monospace;
 }
 
 .photo-date {
+  color: #999;
   font-size: 12px;
-  color: #888;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.map-container {
+  flex: 1;
+  position: relative;
 }
 
 .photo-popup {
-  text-align: center;
-  padding: 5px;
-}
-
-.photo-popup .photo-name {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 8px 0 2px;
-  color: #333;
-  word-break: break-word;
-}
-
-.photo-popup .photo-path {
-  font-size: 12px;
-  color: #666;
-  margin: 0 0 2px;
-  word-break: break-word;
-  font-family: monospace;
-}
-
-.photo-popup .photo-date {
-  font-size: 12px;
-  color: #888;
-  margin: 0;
+  min-width: 200px;
+  max-width: 300px;
 }
 
 .popup-image-container {
-  width: 100%;
-  margin-bottom: 10px;
-  border-radius: 4px;
-  overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin: -13px -19px 10px;
 }
 
 .popup-image {
   width: 100%;
-  height: auto;
-  max-height: 200px;
-  object-fit: contain;
-  display: block;
   cursor: pointer;
+  transition: opacity 0.2s;
 }
 
-.thumbnail-placeholder {
-  width: 60px;
-  height: 60px;
-  border-radius: 4px;
-  margin-right: 10px;
-  background-color: #f5f5f5;
+.popup-image:hover {
+  opacity: 0.9;
+}
+
+.image-viewer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  color: #999;
-  flex-shrink: 0;
+  z-index: 2000;
+}
+
+.image-viewer-content {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+.image-viewer-image {
+  max-width: 100%;
+  max-height: 90vh;
+  object-fit: contain;
+}
+
+.image-viewer-close {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 8px;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.image-viewer-close:hover {
+  opacity: 1;
+}
+
+.image-viewer-info {
+  position: absolute;
+  bottom: -40px;
+  left: 0;
+  right: 0;
+  color: white;
+  text-align: center;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Marker Cluster Custom Styles */
@@ -277,26 +329,6 @@ button:disabled {
   justify-content: center;
 }
 
-.help-text {
-  font-size: 14px;
-  color: #666;
-  margin: 0 0 15px 0;
-  padding: 10px;
-  background-color: #f8f9fa;
-  border-radius: 4px;
-  border: 1px solid #e9ecef;
-}
-
-.downloading {
-  margin-top: 10px;
-  padding: 10px;
-  background-color: #e3f2fd;
-  color: #0d47a1;
-  border-radius: 4px;
-  font-size: 14px;
-  text-align: center;
-}
-
 /* Override Leaflet Draw styles */
 .leaflet-draw-toolbar a {
   background-color: white;
@@ -310,4 +342,35 @@ button:disabled {
 
 .leaflet-draw-actions {
   display: none;
+}
+
+.image-viewer-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.5);
+  color: white;
+  border: none;
+  font-size: 48px;
+  width: 60px;
+  height: 60px;
+  border-radius: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  z-index: 1000;
+}
+
+.image-viewer-nav:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.image-viewer-prev {
+  left: 20px;
+}
+
+.image-viewer-next {
+  right: 20px;
 }
