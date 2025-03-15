@@ -493,6 +493,13 @@ function App() {
         cachedData.photos.forEach(photo => {
           photoMap.set(photo.relativePath, photo);
         });
+        // Display cached photos immediately
+        const cachedPhotos = Array.from(photoMap.values()).sort((a, b) => b.date - a.date);
+        setPhotos(cachedPhotos);
+        if (cachedPhotos.length > 0) {
+          const bounds = L.latLngBounds(cachedPhotos.map(photo => [photo.latitude, photo.longitude]));
+          mapRef.current?.fitBounds(bounds, { padding: [50, 50] });
+        }
       }
 
       // First pass: count total files
@@ -558,13 +565,7 @@ function App() {
       
       if (allFiles.length === 0) {
         setStatus('No new or modified photos to scan');
-        const existingPhotos = Array.from(photoMap.values());
-        setPhotos(existingPhotos);
-        if (existingPhotos.length > 0) {
-          const bounds = L.latLngBounds(existingPhotos.map(photo => [photo.latitude, photo.longitude]));
-          mapRef.current?.fitBounds(bounds, { padding: [50, 50] });
-        }
-        return;
+        return; // Already displaying cached photos, so we can return here
       }
 
       // Reset progress for photo processing phase
