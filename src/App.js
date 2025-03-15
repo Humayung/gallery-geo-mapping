@@ -691,7 +691,8 @@ function App() {
                     </div>
                   )}
                   <div className="photo-info">
-                    <div className="photo-name">{photo.relativePath}</div>
+                    <div className="photo-name">{photo.name}</div>
+                    <div className="photo-path">{photo.relativePath}</div>
                     <div className="photo-date">
                       {new Date(photo.date).toLocaleString()}
                     </div>
@@ -747,13 +748,14 @@ function App() {
                       <div className="popup-image-container">
                         <img
                           src={thumbnailCache.get(photo.relativePath)}
-                          alt={photo.relativePath}
+                          alt={photo.name}
                           className="popup-image"
                           onClick={() => handlePhotoSelect(index)}
                         />
                       </div>
                     )}
-                    <p className="photo-name">{photo.relativePath}</p>
+                    <p className="photo-name">{photo.name}</p>
+                    <p className="photo-path">{photo.relativePath}</p>
                     <p className="photo-date">
                       {new Date(photo.date).toLocaleString()}
                     </p>
