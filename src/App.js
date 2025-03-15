@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, FeatureGroup } from 'react-leaflet';
 import { EditControl } from 'react-leaflet-draw';
 import MarkerClusterGroup from 'react-leaflet-cluster';
@@ -8,6 +8,7 @@ import L from 'leaflet';
 import './App.css';
 import JSZip from 'jszip';
 import EXIF from 'exif-js';
+import createImageWorker from './createImageWorker';
 
 // Fix for default marker icons in React-Leaflet
 delete L.Icon.Default.prototype._getIconUrl;
@@ -16,6 +17,15 @@ L.Icon.Default.mergeOptions({
   iconUrl: require('leaflet/dist/images/marker-icon.png'),
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
 });
+
+// Constants for optimization
+const PARALLEL_WORKERS = navigator.hardwareConcurrency || 4;
+const BATCH_SIZE = 50;
+
+// Create a pool of workers
+const createWorkerPool = (size) => {
+  return Array.from({ length: size }, () => createImageWorker());
+};
 
 function convertDMSToDD(degrees, minutes, seconds, direction) {
   let dd = degrees + minutes / 60 + seconds / 3600;
@@ -186,34 +196,14 @@ async function loadFromJson(dirHandle) {
     const content = await file.text();
     const data = JSON.parse(content);
 
-    // Load thumbnails for each photo
-    const thumbnailsDirHandle = await dirHandle.getDirectoryHandle('thumbnails');
-    
-    const loadedPhotos = await Promise.all(data.photos.map(async photo => {
-      try {
-        const thumbnailFile = await thumbnailsDirHandle.getFileHandle(photo.name + '.thumb.jpg');
-        const thumbnailBlob = await thumbnailFile.getFile();
-        const thumbnail = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(thumbnailBlob);
-        });
-        console.log(photo);
-        return {
-          ...photo,
-          thumbnail,
-          lastModified: new Date(photo.lastModified) // Convert date string back to Date object
-        };
-      } catch (err) {
-        console.error(`Error loading thumbnail for ${photo.name}:`, err);
-        return null;
-      }
-    }));
-
-    // Filter out any photos where thumbnail loading failed
+    // Ensure all dates are milliseconds timestamps
     return {
       ...data,
-      photos: loadedPhotos.filter(photo => photo !== null)
+      photos: data.photos.map(photo => ({
+        ...photo,
+        date: typeof photo.date === 'string' ? new Date(photo.date).getTime() : photo.date,
+        lastModified: typeof photo.lastModified === 'string' ? new Date(photo.lastModified).getTime() : photo.lastModified
+      }))
     };
   } catch (err) {
     if (err.name === 'NotFoundError') {
@@ -221,6 +211,23 @@ async function loadFromJson(dirHandle) {
     }
     console.error('Error loading cache:', err);
     throw err;
+  }
+}
+
+// Add a function to load thumbnail when needed
+async function loadThumbnail(photo, dirHandle) {
+  try {
+    const thumbnailsDirHandle = await dirHandle.getDirectoryHandle('thumbnails');
+    const thumbnailFile = await thumbnailsDirHandle.getFileHandle(photo.name + '.thumb.jpg');
+    const thumbnailBlob = await thumbnailFile.getFile();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.readAsDataURL(thumbnailBlob);
+    });
+  } catch (err) {
+    console.error(`Error loading thumbnail for ${photo.name}:`, err);
+    return null;
   }
 }
 
@@ -236,6 +243,191 @@ function App() {
   const [totalPhotos, setTotalPhotos] = useState(0);
   const [processedPhotos, setProcessedPhotos] = useState(0);
   const [status, setStatus] = useState('');
+  const workerPool = useRef(null);
+  const dirHandleRef = useRef(null);
+  const [thumbnailCache, setThumbnailCache] = useState(new Map());
+  const observerRef = useRef(null);
+  const photoRefs = useRef(new Map());
+  
+  // Initialize worker pool
+  useEffect(() => {
+    workerPool.current = createWorkerPool(PARALLEL_WORKERS);
+    return () => {
+      // Cleanup workers on unmount
+      workerPool.current?.forEach(worker => worker.terminate());
+    };
+  }, []);
+
+  // Initialize intersection observer
+  useEffect(() => {
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const photoIndex = parseInt(entry.target.dataset.index);
+            const photo = photos[photoIndex];
+            if (photo && !thumbnailCache.has(photo.name) && dirHandleRef.current) {
+              handlePhotoSelect(photoIndex);
+            }
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [photos]); // Re-initialize when photos array changes
+
+  // Load initial visible thumbnails
+  useEffect(() => {
+    if (photos.length > 0 && dirHandleRef.current) {
+      // Load first N thumbnails immediately
+      const initialLoadCount = Math.min(20, photos.length);
+      for (let i = 0; i < initialLoadCount; i++) {
+        handlePhotoSelect(i);
+      }
+    }
+  }, [photos]);
+
+  // Update observer entries when photos change
+  useEffect(() => {
+    photoRefs.current.forEach((element) => {
+      if (observerRef.current && element) {
+        observerRef.current.observe(element);
+      }
+    });
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [photos]);
+
+  // Request permission for the directory
+  const requestPermission = async (dirHandle) => {
+    // Request permission if not already granted
+    const options = { mode: 'readwrite' };
+    if ((await dirHandle.queryPermission(options)) !== 'granted') {
+      if ((await dirHandle.requestPermission(options)) !== 'granted') {
+        throw new Error('Permission to access directory was denied');
+      }
+    }
+    return dirHandle;
+  };
+
+  // Process images in parallel using worker pool
+  const processImagesParallel = async (files, dirHandle) => {
+    const results = [];
+    const errors = [];
+    let completedCount = 0;
+    const thumbnailsDirHandle = await dirHandle.getDirectoryHandle('thumbnails', { create: true });
+
+    // Create a queue of available workers
+    const workerQueue = [...workerPool.current];
+
+    const getNextWorker = () => {
+      return new Promise((resolve) => {
+        if (workerQueue.length > 0) {
+          resolve(workerQueue.shift());
+        } else {
+          const checkInterval = setInterval(() => {
+            if (workerQueue.length > 0) {
+              clearInterval(checkInterval);
+              resolve(workerQueue.shift());
+            }
+          }, 100);
+        }
+      });
+    };
+
+    const releaseWorker = (worker) => {
+      workerQueue.push(worker);
+    };
+
+    const processFile = async (file) => {
+      const worker = await getNextWorker();
+      
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        
+        const result = await new Promise((resolve, reject) => {
+          const handleMessage = (e) => {
+            worker.removeEventListener('message', handleMessage);
+            resolve(e.data);
+          };
+          
+          const handleError = (e) => {
+            worker.removeEventListener('error', handleError);
+            reject(new Error(e.message));
+          };
+          
+          worker.addEventListener('message', handleMessage);
+          worker.addEventListener('error', handleError);
+          worker.postMessage({ file, arrayBuffer }, [arrayBuffer]);
+        });
+
+        if (result.error) {
+          throw new Error(result.error);
+        }
+
+        if (result.metadata.latitude && result.metadata.longitude) {
+          // Save thumbnail
+          const thumbnailFile = await thumbnailsDirHandle.getFileHandle(result.fileName + '.thumb.jpg', { create: true });
+          const writable = await thumbnailFile.createWritable();
+          await writable.write(result.thumbnailArrayBuffer);
+          await writable.close();
+
+          // Convert date to milliseconds timestamp if it's a string
+          const dateTimeOriginal = result.metadata.dateTimeOriginal;
+          const dateInMillis = dateTimeOriginal ? 
+            (typeof dateTimeOriginal === 'string' ? 
+              new Date(dateTimeOriginal.replace(/(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3')).getTime() : 
+              dateTimeOriginal) : 
+            result.lastModified;
+
+          // Add to results without the thumbnail data
+          results.push({
+            name: result.fileName,
+            date: dateInMillis,
+            latitude: result.metadata.latitude,
+            longitude: result.metadata.longitude,
+            thumbnailPath: `thumbnails/${result.fileName}.thumb.jpg`,
+            lastModified: result.lastModified,
+            file: file // Keep file reference for saving
+          });
+        }
+
+        completedCount++;
+        setProgress(Math.round((completedCount / files.length) * 100));
+        setProcessedPhotos(completedCount);
+        
+      } catch (error) {
+        errors.push({ file: file.name, error: error.message });
+        console.error(`Error processing file ${file.name}:`, error);
+      } finally {
+        releaseWorker(worker);
+      }
+    };
+
+    // Process files sequentially in small batches to maintain order and prevent overwhelming
+    const CONCURRENT_BATCH = Math.min(PARALLEL_WORKERS, 4); // Limit concurrent processing
+    for (let i = 0; i < files.length; i += CONCURRENT_BATCH) {
+      const batch = files.slice(i, i + CONCURRENT_BATCH);
+      await Promise.all(batch.map(file => processFile(file)));
+    }
+
+    if (errors.length > 0) {
+      console.warn('Files that failed to process:', errors);
+    }
+
+    // Sort results by date to maintain consistency
+    return results.sort((a, b) => b.date - a.date);
+  };
 
   const handleScan = async () => {
     try {
@@ -246,35 +438,48 @@ function App() {
       setTotalPhotos(0);
       setProcessedPhotos(0);
       setStatus('');
+      setThumbnailCache(new Map()); // Clear thumbnail cache
 
+      // Get directory handle and store it
       const dirHandle = await window.showDirectoryPicker();
+      await requestPermission(dirHandle);
+      dirHandleRef.current = dirHandle;
       
       // Try to load existing cache
       setStatus('Checking for existing cache...');
       const cachedData = await loadFromJson(dirHandle);
-      let existingPhotos = [];
-      let existingPhotoNames = new Set();
+      let photoMap = new Map(); // Use a map to track all photos by name
       
       if (cachedData) {
         setStatus('Found cached data, loading...');
-        existingPhotos = cachedData.photos;
-        existingPhotoNames = new Set(existingPhotos.map(p => p.name));
-        setPhotos(existingPhotos);
+        cachedData.photos.forEach(photo => {
+          photoMap.set(photo.name, photo);
+        });
       }
 
-      // Collect all photo files that aren't in the cache
-      setStatus('Scanning for new photos...');
-      const newPhotoFiles = [];
+      // Collect all files first
+      setStatus('Collecting files...');
+      const allFiles = [];
+      const seenFiles = new Set();
+
       for await (const file of getFiles(dirHandle)) {
-        if (!existingPhotoNames.has(file.name)) {
-          newPhotoFiles.push(file);
+        if (!seenFiles.has(file.name)) {
+          seenFiles.add(file.name);
+          const existingPhoto = photoMap.get(file.name);
+          if (!existingPhoto || existingPhoto.lastModified !== file.lastModified) {
+            allFiles.push(file);
+          }
         }
       }
 
-      setTotalPhotos(newPhotoFiles.length);
+      // Sort files by name for consistent processing order
+      allFiles.sort((a, b) => a.name.localeCompare(b.name));
+      setTotalPhotos(allFiles.length);
       
-      if (newPhotoFiles.length === 0) {
-        setStatus('No new photos to scan');
+      if (allFiles.length === 0) {
+        setStatus('No new or modified photos to scan');
+        const existingPhotos = Array.from(photoMap.values());
+        setPhotos(existingPhotos);
         if (existingPhotos.length > 0) {
           const bounds = L.latLngBounds(existingPhotos.map(photo => [photo.latitude, photo.longitude]));
           mapRef.current?.fitBounds(bounds, { padding: [50, 50] });
@@ -282,46 +487,38 @@ function App() {
         return;
       }
 
-      // Process new files
-      setStatus('Processing new photos...');
-      const newPhotos = [...existingPhotos];
+      // Process files in parallel and save thumbnails immediately
+      setStatus('Processing photos and saving thumbnails...');
+      const processedPhotos = await processImagesParallel(allFiles, dirHandle);
+      
+      // Update the photo map with new/updated photos
+      processedPhotos.forEach(photo => {
+        photoMap.set(photo.name, photo);
+      });
 
-      for (const file of newPhotoFiles) {
-        try {
-          const metadata = await getExifData(file);
-          const { latitude, longitude, dateTimeOriginal } = metadata;
-          
-          if (latitude && longitude) {
-            const thumbnail = await createThumbnail(file);
-            newPhotos.push({
-              name: file.name,
-              date: dateTimeOriginal || new Date(file.lastModified),
-              latitude,
-              longitude,
-              thumbnail,
-              file
-            });
-          }
-        } catch (err) {
-          console.error('Error processing file:', file.name, err);
-        }
-        
-        setProcessedPhotos(prev => {
-          const newValue = prev + 1;
-          setProgress(Math.round((newValue / newPhotoFiles.length) * 100));
-          return newValue;
-        });
-      }
+      // Convert map back to array, sorted by date
+      const allPhotos = Array.from(photoMap.values()).sort((a, b) => b.date - a.date);
 
-      // Save updated data to cache
-      setStatus('Saving updated cache...');
-      await saveToJson(newPhotos, dirHandle);
+      // Save metadata
+      setStatus('Saving metadata...');
+      const jsonContent = JSON.stringify({ 
+        photos: allPhotos.map(photo => ({
+          ...photo,
+          file: undefined // Remove file reference before saving
+        })),
+        lastScanned: new Date().toISOString()
+      }, null, 2);
 
-      setPhotos(newPhotos);
+      const jsonFile = await dirHandle.getFileHandle('photos-metadata.json', { create: true });
+      const writable = await jsonFile.createWritable();
+      await writable.write(jsonContent);
+      await writable.close();
+
+      setPhotos(allPhotos);
       setStatus('Scan complete');
 
-      if (newPhotos.length > 0) {
-        const bounds = L.latLngBounds(newPhotos.map(photo => [photo.latitude, photo.longitude]));
+      if (allPhotos.length > 0) {
+        const bounds = L.latLngBounds(allPhotos.map(photo => [photo.latitude, photo.longitude]));
         mapRef.current?.fitBounds(bounds, { padding: [50, 50] });
       }
     } catch (err) {
@@ -335,9 +532,18 @@ function App() {
     }
   };
 
-  const handlePhotoSelect = (index) => {
-    setSelectedPhoto(index);
+  const handlePhotoSelect = async (index) => {
     const photo = photos[index];
+    
+    // Load thumbnail if not in cache
+    if (!thumbnailCache.has(photo.name) && dirHandleRef.current) {
+      const thumbnail = await loadThumbnail(photo, dirHandleRef.current);
+      if (thumbnail) {
+        setThumbnailCache(prev => new Map(prev).set(photo.name, thumbnail));
+      }
+    }
+    
+    setSelectedPhoto(index);
     if (mapRef.current) {
       mapRef.current.setView([photo.latitude, photo.longitude], 12);
     }
@@ -358,10 +564,18 @@ function App() {
 
     setDownloading(true);
     try {
+      // Verify permission before accessing files
+      if (dirHandleRef.current) {
+        await requestPermission(dirHandleRef.current);
+      }
+
       const zip = new JSZip();
       
       for (const photo of selectedPhotos) {
-        zip.file(photo.name, photo.file);
+        // Get the original file
+        const file = await dirHandleRef.current.getFileHandle(photo.name);
+        const fileData = await file.getFile();
+        zip.file(photo.name, fileData);
       }
       
       const content = await zip.generateAsync({
@@ -402,26 +616,35 @@ function App() {
           <p className="help-text">Draw a rectangle on the map to select and download photos from that area.</p>
           {loading ? (
             <div className="scanning-message">
-              Scanning directory... {progress}%<br/>
-              Processed: {processedPhotos}/{totalPhotos} photos
+              {status}<br/>
+              {progress > 0 && `Progress: ${progress}%`}<br/>
+              {processedPhotos > 0 && `Processed: ${processedPhotos}/${totalPhotos} photos`}
             </div>
           ) : (
             <div className="photo-items">
               {photos.map((photo, index) => (
                 <div 
-                  key={index} 
+                  key={index}
+                  ref={el => photoRefs.current.set(index, el)}
+                  data-index={index}
                   className={`photo-item ${selectedPhoto === index ? 'selected' : ''}`}
                   onClick={() => handlePhotoSelect(index)}
                 >
-                  <img
-                    src={photo.thumbnail}
-                    alt={photo.name}
-                    className="thumbnail"
-                  />
+                  {thumbnailCache.has(photo.name) ? (
+                    <img
+                      src={thumbnailCache.get(photo.name)}
+                      alt={photo.name}
+                      className="thumbnail"
+                    />
+                  ) : (
+                    <div className="thumbnail-placeholder">
+                      Loading...
+                    </div>
+                  )}
                   <div className="photo-info">
                     <div className="photo-name">{photo.name}</div>
                     <div className="photo-date">
-                      {photo.date.toLocaleString()}
+                      {new Date(photo.date).toLocaleString()}
                     </div>
                   </div>
                 </div>
@@ -471,17 +694,19 @@ function App() {
               >
                 <Popup>
                   <div className="photo-popup">
-                    <div className="popup-image-container">
-                      <img
-                        src={photo.thumbnail}
-                        alt={photo.name}
-                        className="popup-image"
-                        onClick={() => handlePhotoSelect(index)}
-                      />
-                    </div>
+                    {thumbnailCache.has(photo.name) && (
+                      <div className="popup-image-container">
+                        <img
+                          src={thumbnailCache.get(photo.name)}
+                          alt={photo.name}
+                          className="popup-image"
+                          onClick={() => handlePhotoSelect(index)}
+                        />
+                      </div>
+                    )}
                     <p className="photo-name">{photo.name}</p>
                     <p className="photo-date">
-                      {photo.date.toLocaleString()}
+                      {new Date(photo.date).toLocaleString()}
                     </p>
                   </div>
                 </Popup>
