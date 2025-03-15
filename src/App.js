@@ -231,24 +231,54 @@ async function loadFromJson(dirHandle) {
 // Add a function to load thumbnail when needed
 async function loadThumbnail(photo, dirHandle) {
   try {
-    // Split the relative path into parts
-    const pathParts = photo.relativePath.split('/');
-    let currentDirHandle = await dirHandle.getDirectoryHandle('thumbnails');
-    
-    // Navigate through subdirectories
-    if (pathParts.length > 1) {
-      for (let i = 0; i < pathParts.length - 1; i++) {
-        currentDirHandle = await currentDirHandle.getDirectoryHandle(pathParts[i]);
+    // First try to load from the root thumbnails directory
+    try {
+      const rootThumbnailsDirHandle = await dirHandle.getDirectoryHandle('thumbnails');
+      const pathParts = photo.relativePath.split('/');
+      let currentDirHandle = rootThumbnailsDirHandle;
+      
+      // Navigate through subdirectories
+      if (pathParts.length > 1) {
+        for (let i = 0; i < pathParts.length - 1; i++) {
+          currentDirHandle = await currentDirHandle.getDirectoryHandle(pathParts[i]);
+        }
+      }
+      
+      const thumbnailFile = await currentDirHandle.getFileHandle(photo.name + '.thumb.jpg');
+      const thumbnailBlob = await thumbnailFile.getFile();
+      return await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(thumbnailBlob);
+      });
+    } catch (rootErr) {
+      // If not found in root, try to find in subdirectories
+      const pathParts = photo.relativePath.split('/');
+      if (pathParts.length > 1) {
+        let subDirHandle = dirHandle;
+        
+        // Navigate to the photo's directory
+        for (let i = 0; i < pathParts.length - 1; i++) {
+          subDirHandle = await subDirHandle.getDirectoryHandle(pathParts[i]);
+        }
+        
+        // Try to find thumbnails directory at this level
+        try {
+          const localThumbnailsDirHandle = await subDirHandle.getDirectoryHandle('thumbnails');
+          const thumbnailFile = await localThumbnailsDirHandle.getFileHandle(photo.name + '.thumb.jpg');
+          const thumbnailBlob = await thumbnailFile.getFile();
+          return await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(thumbnailBlob);
+          });
+        } catch (subDirErr) {
+          // Thumbnail not found in either location
+          return null;
+        }
       }
     }
-    
-    const thumbnailFile = await currentDirHandle.getFileHandle(photo.name + '.thumb.jpg');
-    const thumbnailBlob = await thumbnailFile.getFile();
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(thumbnailBlob);
-    });
+    return null;
   } catch (err) {
     console.error(`Error loading thumbnail for ${photo.relativePath}:`, err);
     return null;
@@ -532,6 +562,34 @@ const PhotosMap = React.memo(({
   );
 });
 
+async function findMetadataFiles(dirHandle, path = '') {
+  const metadataFiles = [];
+  
+  for await (const entry of dirHandle.values()) {
+    if (entry.kind === 'file' && entry.name === 'photos-metadata.json') {
+      const file = await entry.getFile();
+      const content = await file.text();
+      const data = JSON.parse(content);
+      // Add path prefix to all photo paths in the metadata
+      const photosWithPath = data.photos.map(photo => ({
+        ...photo,
+        relativePath: path ? `${path}/${photo.relativePath}` : photo.relativePath,
+        thumbnailPath: path ? `${path}/${photo.thumbnailPath}` : photo.thumbnailPath
+      }));
+      metadataFiles.push({
+        path,
+        photos: photosWithPath
+      });
+    } else if (entry.kind === 'directory') {
+      const newPath = path ? `${path}/${entry.name}` : entry.name;
+      const subDirMetadata = await findMetadataFiles(entry, newPath);
+      metadataFiles.push(...subDirMetadata);
+    }
+  }
+  
+  return metadataFiles;
+}
+
 function App() {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -786,17 +844,33 @@ function App() {
       setProcessedPhotos(0);
       setThumbnailCache(new Map()); // Clear thumbnail cache
       
-      // Try to load existing cache
+      // Try to load existing cache from root and subdirectories
       setStatus('Checking for existing cache...');
-      const cachedData = await loadFromJson(dirHandle);
+      const rootCachedData = await loadFromJson(dirHandle);
+      const subDirMetadata = await findMetadataFiles(dirHandle);
+      
       let photoMap = new Map(); // Use a map to track all photos by relative path
       
-      if (cachedData) {
-        setStatus('Found cached data, loading...');
-        cachedData.photos.forEach(photo => {
+      // Add photos from root metadata if exists
+      if (rootCachedData) {
+        setStatus('Found cached data in root directory, loading...');
+        rootCachedData.photos.forEach(photo => {
           photoMap.set(photo.relativePath, photo);
         });
-        // Display cached photos immediately
+      }
+
+      // Add photos from subdirectory metadata
+      if (subDirMetadata.length > 0) {
+        setStatus(`Found ${subDirMetadata.length} additional metadata file(s) in subdirectories, merging...`);
+        subDirMetadata.forEach(metadata => {
+          metadata.photos.forEach(photo => {
+            photoMap.set(photo.relativePath, photo);
+          });
+        });
+      }
+
+      // Display merged cached photos immediately
+      if (photoMap.size > 0) {
         const cachedPhotos = Array.from(photoMap.values()).sort((a, b) => b.date - a.date);
         setPhotos(cachedPhotos);
         if (cachedPhotos.length > 0) {
