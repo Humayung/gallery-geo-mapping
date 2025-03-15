@@ -772,17 +772,19 @@ function App() {
     try {
       setLoading(true);
       setError(null);
-      setPhotos([]);
       setProgress(0);
-      setTotalPhotos(0);
-      setProcessedPhotos(0);
       setStatus('');
-      setThumbnailCache(new Map()); // Clear thumbnail cache
 
       // Get directory handle and store it
       const dirHandle = await window.showDirectoryPicker();
       await requestPermission(dirHandle);
       dirHandleRef.current = dirHandle;
+      
+      // Only clear existing data after user has selected a directory
+      setPhotos([]);
+      setTotalPhotos(0);
+      setProcessedPhotos(0);
+      setThumbnailCache(new Map()); // Clear thumbnail cache
       
       // Try to load existing cache
       setStatus('Checking for existing cache...');
