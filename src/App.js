@@ -112,6 +112,118 @@ async function* getFiles(dirHandle) {
   }
 }
 
+async function saveThumbnail(thumbnailData, fileName, dirHandle) {
+  try {
+    // Create thumbnails directory if it doesn't exist
+    let thumbnailsDirHandle;
+    try {
+      thumbnailsDirHandle = await dirHandle.getDirectoryHandle('thumbnails', { create: true });
+    } catch (err) {
+      console.error('Error creating thumbnails directory:', err);
+      throw err;
+    }
+
+    // Convert base64 to blob
+    const base64Data = thumbnailData.split(',')[1];
+    const byteCharacters = atob(base64Data);
+    const byteArrays = [];
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteArrays.push(byteCharacters.charCodeAt(i));
+    }
+    const blob = new Blob([new Uint8Array(byteArrays)], { type: 'image/jpeg' });
+
+    // Save thumbnail
+    const thumbnailFile = await thumbnailsDirHandle.getFileHandle(fileName + '.thumb.jpg', { create: true });
+    const writable = await thumbnailFile.createWritable();
+    await writable.write(blob);
+    await writable.close();
+
+    return `thumbnails/${fileName}.thumb.jpg`;
+  } catch (err) {
+    console.error('Error saving thumbnail:', err);
+    throw err;
+  }
+}
+
+async function saveToJson(photos, dirHandle) {
+  try {
+    // Save thumbnails first and get their paths
+    const photoPromises = photos.map(async photo => {
+      const thumbnailPath = await saveThumbnail(photo.thumbnail, photo.name, dirHandle);
+      return {
+        name: photo.name,
+        date: photo.date,
+        latitude: photo.latitude,
+        longitude: photo.longitude,
+        thumbnailPath: thumbnailPath,
+        lastModified: photo.file.lastModified
+      };
+    });
+
+    const serializablePhotos = await Promise.all(photoPromises);
+
+    // Create the JSON file with metadata only
+    const jsonContent = JSON.stringify({ 
+      photos: serializablePhotos,
+      lastScanned: new Date().toISOString()
+    }, null, 2); // Added formatting for better readability
+
+    // Save the metadata file
+    const jsonFile = await dirHandle.getFileHandle('photos-metadata.json', { create: true });
+    const writable = await jsonFile.createWritable();
+    await writable.write(jsonContent);
+    await writable.close();
+  } catch (err) {
+    console.error('Error saving metadata:', err);
+    throw err;
+  }
+}
+
+async function loadFromJson(dirHandle) {
+  try {
+    const jsonFile = await dirHandle.getFileHandle('photos-metadata.json');
+    const file = await jsonFile.getFile();
+    const content = await file.text();
+    const data = JSON.parse(content);
+
+    // Load thumbnails for each photo
+    const thumbnailsDirHandle = await dirHandle.getDirectoryHandle('thumbnails');
+    
+    const loadedPhotos = await Promise.all(data.photos.map(async photo => {
+      try {
+        const thumbnailFile = await thumbnailsDirHandle.getFileHandle(photo.name + '.thumb.jpg');
+        const thumbnailBlob = await thumbnailFile.getFile();
+        const thumbnail = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(thumbnailBlob);
+        });
+        console.log(photo);
+        return {
+          ...photo,
+          thumbnail,
+          lastModified: new Date(photo.lastModified) // Convert date string back to Date object
+        };
+      } catch (err) {
+        console.error(`Error loading thumbnail for ${photo.name}:`, err);
+        return null;
+      }
+    }));
+
+    // Filter out any photos where thumbnail loading failed
+    return {
+      ...data,
+      photos: loadedPhotos.filter(photo => photo !== null)
+    };
+  } catch (err) {
+    if (err.name === 'NotFoundError') {
+      return null;
+    }
+    console.error('Error loading cache:', err);
+    throw err;
+  }
+}
+
 function App() {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -123,6 +235,7 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [totalPhotos, setTotalPhotos] = useState(0);
   const [processedPhotos, setProcessedPhotos] = useState(0);
+  const [status, setStatus] = useState('');
 
   const handleScan = async () => {
     try {
@@ -132,24 +245,51 @@ function App() {
       setProgress(0);
       setTotalPhotos(0);
       setProcessedPhotos(0);
+      setStatus('');
 
       const dirHandle = await window.showDirectoryPicker();
-      const newPhotos = [];
-      const photoFiles = [];
-
-      // First collect all photo files
-      for await (const file of getFiles(dirHandle)) {
-        photoFiles.push(file);
+      
+      // Try to load existing cache
+      setStatus('Checking for existing cache...');
+      const cachedData = await loadFromJson(dirHandle);
+      let existingPhotos = [];
+      let existingPhotoNames = new Set();
+      
+      if (cachedData) {
+        setStatus('Found cached data, loading...');
+        existingPhotos = cachedData.photos;
+        existingPhotoNames = new Set(existingPhotos.map(p => p.name));
+        setPhotos(existingPhotos);
       }
 
-      setTotalPhotos(photoFiles.length);
+      // Collect all photo files that aren't in the cache
+      setStatus('Scanning for new photos...');
+      const newPhotoFiles = [];
+      for await (const file of getFiles(dirHandle)) {
+        if (!existingPhotoNames.has(file.name)) {
+          newPhotoFiles.push(file);
+        }
+      }
 
-      // Then process each file
-      for (const file of photoFiles) {
+      setTotalPhotos(newPhotoFiles.length);
+      
+      if (newPhotoFiles.length === 0) {
+        setStatus('No new photos to scan');
+        if (existingPhotos.length > 0) {
+          const bounds = L.latLngBounds(existingPhotos.map(photo => [photo.latitude, photo.longitude]));
+          mapRef.current?.fitBounds(bounds, { padding: [50, 50] });
+        }
+        return;
+      }
+
+      // Process new files
+      setStatus('Processing new photos...');
+      const newPhotos = [...existingPhotos];
+
+      for (const file of newPhotoFiles) {
         try {
           const metadata = await getExifData(file);
           const { latitude, longitude, dateTimeOriginal } = metadata;
-          console.log(metadata);
           
           if (latitude && longitude) {
             const thumbnail = await createThumbnail(file);
@@ -168,12 +308,17 @@ function App() {
         
         setProcessedPhotos(prev => {
           const newValue = prev + 1;
-          setProgress(Math.round((newValue / photoFiles.length) * 100));
+          setProgress(Math.round((newValue / newPhotoFiles.length) * 100));
           return newValue;
         });
       }
 
+      // Save updated data to cache
+      setStatus('Saving updated cache...');
+      await saveToJson(newPhotos, dirHandle);
+
       setPhotos(newPhotos);
+      setStatus('Scan complete');
 
       if (newPhotos.length > 0) {
         const bounds = L.latLngBounds(newPhotos.map(photo => [photo.latitude, photo.longitude]));
@@ -246,7 +391,7 @@ function App() {
       <div className="sidebar">
         <div className="controls">
           <button onClick={handleScan} disabled={loading}>
-            {loading ? `Scanning... ${progress}% (${processedPhotos}/${totalPhotos})` : 'Select Directory'}
+            {loading ? `${status} ${progress > 0 ? `${progress}% (${processedPhotos}/${totalPhotos})` : ''}` : 'Select Directory'}
           </button>
           {error && <div className="error">{error}</div>}
           {downloading && <div className="downloading">Creating zip file...</div>}
