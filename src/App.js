@@ -273,8 +273,26 @@ async function loadThumbnail(photo, dirHandle) {
             reader.readAsDataURL(thumbnailBlob);
           });
         } catch (subDirErr) {
-          // Thumbnail not found in either location
-          return null;
+          // Thumbnail not found in either location, regenerate it
+          console.log('Regenerating thumbnail for:', photo.relativePath);
+          
+          // Get the original file
+          let currentDirHandle = dirHandle;
+          if (pathParts.length > 1) {
+            for (let i = 0; i < pathParts.length - 1; i++) {
+              currentDirHandle = await currentDirHandle.getDirectoryHandle(pathParts[i]);
+            }
+          }
+          const fileHandle = await currentDirHandle.getFileHandle(photo.name);
+          const file = await fileHandle.getFile();
+          
+          // Generate new thumbnail
+          const thumbnailData = await createThumbnail(file);
+          
+          // Save the regenerated thumbnail
+          await saveThumbnail(thumbnailData, photo.name, photo.relativePath, dirHandle);
+          
+          return thumbnailData;
         }
       }
     }
