@@ -10,7 +10,7 @@ function convertDMSToDD(degrees, minutes, seconds, direction) {
 }
 
 async function processImage(imageData) {
-  const { file, arrayBuffer } = imageData;
+  const { file, arrayBuffer, relativePath } = imageData;
   
   // Extract EXIF data
   const tags = EXIF.readFromBinaryFile(arrayBuffer);
@@ -67,7 +67,6 @@ async function processImage(imageData) {
   return {
     metadata,
     thumbnailArrayBuffer,
-    fileName: file.name,
     lastModified: file.lastModified
   };
 }

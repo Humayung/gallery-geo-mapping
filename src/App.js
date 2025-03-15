@@ -110,19 +110,23 @@ async function createThumbnail(file) {
   });
 }
 
-async function* getFiles(dirHandle) {
+async function* getFiles(dirHandle, path = '') {
   for await (const entry of dirHandle.values()) {
     if (entry.kind === 'file') {
       if (entry.name.toLowerCase().match(/\.(jpg|jpeg|png)$/)) {
-        yield await entry.getFile();
+        const file = await entry.getFile();
+        // Attach the relative path to the file object
+        file.relativePath = path ? `${path}/${entry.name}` : entry.name;
+        yield file;
       }
     } else if (entry.kind === 'directory') {
-      yield* getFiles(entry);
+      const newPath = path ? `${path}/${entry.name}` : entry.name;
+      yield* getFiles(entry, newPath);
     }
   }
 }
 
-async function saveThumbnail(thumbnailData, fileName, dirHandle) {
+async function saveThumbnail(thumbnailData, fileName, relativePath, dirHandle) {
   try {
     // Create thumbnails directory if it doesn't exist
     let thumbnailsDirHandle;
@@ -142,13 +146,22 @@ async function saveThumbnail(thumbnailData, fileName, dirHandle) {
     }
     const blob = new Blob([new Uint8Array(byteArrays)], { type: 'image/jpeg' });
 
+    // Create subdirectories in thumbnails if needed
+    const pathParts = relativePath.split('/');
+    let currentDirHandle = thumbnailsDirHandle;
+    if (pathParts.length > 1) {
+      for (let i = 0; i < pathParts.length - 1; i++) {
+        currentDirHandle = await currentDirHandle.getDirectoryHandle(pathParts[i], { create: true });
+      }
+    }
+
     // Save thumbnail
-    const thumbnailFile = await thumbnailsDirHandle.getFileHandle(fileName + '.thumb.jpg', { create: true });
+    const thumbnailFile = await currentDirHandle.getFileHandle(fileName + '.thumb.jpg', { create: true });
     const writable = await thumbnailFile.createWritable();
     await writable.write(blob);
     await writable.close();
 
-    return `thumbnails/${fileName}.thumb.jpg`;
+    return `thumbnails/${relativePath}.thumb.jpg`;
   } catch (err) {
     console.error('Error saving thumbnail:', err);
     throw err;
@@ -159,9 +172,10 @@ async function saveToJson(photos, dirHandle) {
   try {
     // Save thumbnails first and get their paths
     const photoPromises = photos.map(async photo => {
-      const thumbnailPath = await saveThumbnail(photo.thumbnail, photo.name, dirHandle);
+      const thumbnailPath = await saveThumbnail(photo.thumbnail, photo.name, photo.relativePath, dirHandle);
       return {
         name: photo.name,
+        relativePath: photo.relativePath,
         date: photo.date,
         latitude: photo.latitude,
         longitude: photo.longitude,
@@ -176,7 +190,7 @@ async function saveToJson(photos, dirHandle) {
     const jsonContent = JSON.stringify({ 
       photos: serializablePhotos,
       lastScanned: new Date().toISOString()
-    }, null, 2); // Added formatting for better readability
+    }, null, 2);
 
     // Save the metadata file
     const jsonFile = await dirHandle.getFileHandle('photos-metadata.json', { create: true });
@@ -217,8 +231,18 @@ async function loadFromJson(dirHandle) {
 // Add a function to load thumbnail when needed
 async function loadThumbnail(photo, dirHandle) {
   try {
-    const thumbnailsDirHandle = await dirHandle.getDirectoryHandle('thumbnails');
-    const thumbnailFile = await thumbnailsDirHandle.getFileHandle(photo.name + '.thumb.jpg');
+    // Split the relative path into parts
+    const pathParts = photo.relativePath.split('/');
+    let currentDirHandle = await dirHandle.getDirectoryHandle('thumbnails');
+    
+    // Navigate through subdirectories
+    if (pathParts.length > 1) {
+      for (let i = 0; i < pathParts.length - 1; i++) {
+        currentDirHandle = await currentDirHandle.getDirectoryHandle(pathParts[i]);
+      }
+    }
+    
+    const thumbnailFile = await currentDirHandle.getFileHandle(photo.name + '.thumb.jpg');
     const thumbnailBlob = await thumbnailFile.getFile();
     return await new Promise((resolve) => {
       const reader = new FileReader();
@@ -226,7 +250,7 @@ async function loadThumbnail(photo, dirHandle) {
       reader.readAsDataURL(thumbnailBlob);
     });
   } catch (err) {
-    console.error(`Error loading thumbnail for ${photo.name}:`, err);
+    console.error(`Error loading thumbnail for ${photo.relativePath}:`, err);
     return null;
   }
 }
@@ -266,7 +290,7 @@ function App() {
           if (entry.isIntersecting) {
             const photoIndex = parseInt(entry.target.dataset.index);
             const photo = photos[photoIndex];
-            if (photo && !thumbnailCache.has(photo.name) && dirHandleRef.current) {
+            if (photo && !thumbnailCache.has(photo.relativePath) && dirHandleRef.current) {
               handlePhotoSelect(photoIndex);
             }
           }
@@ -280,7 +304,7 @@ function App() {
         observerRef.current.disconnect();
       }
     };
-  }, [photos]); // Re-initialize when photos array changes
+  }, [photos, thumbnailCache]);
 
   // Load initial visible thumbnails
   useEffect(() => {
@@ -368,7 +392,11 @@ function App() {
           
           worker.addEventListener('message', handleMessage);
           worker.addEventListener('error', handleError);
-          worker.postMessage({ file, arrayBuffer }, [arrayBuffer]);
+          worker.postMessage({
+            file,
+            arrayBuffer,
+            relativePath: file.relativePath
+          }, [arrayBuffer]);
         });
 
         if (result.error) {
@@ -376,8 +404,17 @@ function App() {
         }
 
         if (result.metadata.latitude && result.metadata.longitude) {
+          // Create subdirectories in thumbnails if needed
+          const pathParts = file.relativePath.split('/');
+          let currentDirHandle = thumbnailsDirHandle;
+          if (pathParts.length > 1) {
+            for (let i = 0; i < pathParts.length - 1; i++) {
+              currentDirHandle = await currentDirHandle.getDirectoryHandle(pathParts[i], { create: true });
+            }
+          }
+
           // Save thumbnail
-          const thumbnailFile = await thumbnailsDirHandle.getFileHandle(result.fileName + '.thumb.jpg', { create: true });
+          const thumbnailFile = await currentDirHandle.getFileHandle(file.name + '.thumb.jpg', { create: true });
           const writable = await thumbnailFile.createWritable();
           await writable.write(result.thumbnailArrayBuffer);
           await writable.close();
@@ -392,12 +429,13 @@ function App() {
 
           // Add to results without the thumbnail data
           results.push({
-            name: result.fileName,
+            name: file.name,
+            relativePath: file.relativePath,
             date: dateInMillis,
             latitude: result.metadata.latitude,
             longitude: result.metadata.longitude,
-            thumbnailPath: `thumbnails/${result.fileName}.thumb.jpg`,
-            lastModified: result.lastModified,
+            thumbnailPath: `thumbnails/${file.relativePath}.thumb.jpg`,
+            lastModified: file.lastModified,
             file: file // Keep file reference for saving
           });
         }
@@ -448,12 +486,12 @@ function App() {
       // Try to load existing cache
       setStatus('Checking for existing cache...');
       const cachedData = await loadFromJson(dirHandle);
-      let photoMap = new Map(); // Use a map to track all photos by name
+      let photoMap = new Map(); // Use a map to track all photos by relative path
       
       if (cachedData) {
         setStatus('Found cached data, loading...');
         cachedData.photos.forEach(photo => {
-          photoMap.set(photo.name, photo);
+          photoMap.set(photo.relativePath, photo);
         });
       }
 
@@ -463,17 +501,17 @@ function App() {
       const seenFiles = new Set();
 
       for await (const file of getFiles(dirHandle)) {
-        if (!seenFiles.has(file.name)) {
-          seenFiles.add(file.name);
-          const existingPhoto = photoMap.get(file.name);
+        if (!seenFiles.has(file.relativePath)) {
+          seenFiles.add(file.relativePath);
+          const existingPhoto = photoMap.get(file.relativePath);
           if (!existingPhoto || existingPhoto.lastModified !== file.lastModified) {
             allFiles.push(file);
           }
         }
       }
 
-      // Sort files by name for consistent processing order
-      allFiles.sort((a, b) => a.name.localeCompare(b.name));
+      // Sort files by relative path for consistent processing order
+      allFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
       setTotalPhotos(allFiles.length);
       
       if (allFiles.length === 0) {
@@ -493,7 +531,7 @@ function App() {
       
       // Update the photo map with new/updated photos
       processedPhotos.forEach(photo => {
-        photoMap.set(photo.name, photo);
+        photoMap.set(photo.relativePath, photo);
       });
 
       // Convert map back to array, sorted by date
@@ -536,10 +574,10 @@ function App() {
     const photo = photos[index];
     
     // Load thumbnail if not in cache
-    if (!thumbnailCache.has(photo.name) && dirHandleRef.current) {
+    if (!thumbnailCache.has(photo.relativePath) && dirHandleRef.current) {
       const thumbnail = await loadThumbnail(photo, dirHandleRef.current);
       if (thumbnail) {
-        setThumbnailCache(prev => new Map(prev).set(photo.name, thumbnail));
+        setThumbnailCache(prev => new Map(prev).set(photo.relativePath, thumbnail));
       }
     }
     
@@ -572,10 +610,21 @@ function App() {
       const zip = new JSZip();
       
       for (const photo of selectedPhotos) {
-        // Get the original file
-        const file = await dirHandleRef.current.getFileHandle(photo.name);
+        // Get the original file by traversing the directory structure
+        const pathParts = photo.relativePath.split('/');
+        let currentDirHandle = dirHandleRef.current;
+        
+        // Navigate through subdirectories
+        if (pathParts.length > 1) {
+          for (let i = 0; i < pathParts.length - 1; i++) {
+            currentDirHandle = await currentDirHandle.getDirectoryHandle(pathParts[i]);
+          }
+        }
+        
+        const file = await currentDirHandle.getFileHandle(photo.name);
         const fileData = await file.getFile();
-        zip.file(photo.name, fileData);
+        // Preserve directory structure in the zip
+        zip.file(photo.relativePath, fileData);
       }
       
       const content = await zip.generateAsync({
@@ -630,10 +679,10 @@ function App() {
                   className={`photo-item ${selectedPhoto === index ? 'selected' : ''}`}
                   onClick={() => handlePhotoSelect(index)}
                 >
-                  {thumbnailCache.has(photo.name) ? (
+                  {thumbnailCache.has(photo.relativePath) ? (
                     <img
-                      src={thumbnailCache.get(photo.name)}
-                      alt={photo.name}
+                      src={thumbnailCache.get(photo.relativePath)}
+                      alt={photo.relativePath}
                       className="thumbnail"
                     />
                   ) : (
@@ -642,7 +691,7 @@ function App() {
                     </div>
                   )}
                   <div className="photo-info">
-                    <div className="photo-name">{photo.name}</div>
+                    <div className="photo-name">{photo.relativePath}</div>
                     <div className="photo-date">
                       {new Date(photo.date).toLocaleString()}
                     </div>
@@ -694,17 +743,17 @@ function App() {
               >
                 <Popup>
                   <div className="photo-popup">
-                    {thumbnailCache.has(photo.name) && (
+                    {thumbnailCache.has(photo.relativePath) && (
                       <div className="popup-image-container">
                         <img
-                          src={thumbnailCache.get(photo.name)}
-                          alt={photo.name}
+                          src={thumbnailCache.get(photo.relativePath)}
+                          alt={photo.relativePath}
                           className="popup-image"
                           onClick={() => handlePhotoSelect(index)}
                         />
                       </div>
                     )}
-                    <p className="photo-name">{photo.name}</p>
+                    <p className="photo-name">{photo.relativePath}</p>
                     <p className="photo-date">
                       {new Date(photo.date).toLocaleString()}
                     </p>
