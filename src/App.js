@@ -255,6 +255,99 @@ async function loadThumbnail(photo, dirHandle) {
   }
 }
 
+function ScanProgress({ status, progress, processedPhotos, totalPhotos }) {
+  return (
+    <div className="scanning-message">
+      {status}<br/>
+      {progress > 0 && `Progress: ${progress}%`}<br/>
+      {processedPhotos > 0 && `Processed: ${processedPhotos}/${totalPhotos} photos`}
+    </div>
+  );
+}
+
+const PhotoPopup = React.memo(({ photo, thumbnail, onPhotoSelect, index }) => {
+  return (
+    <div className="photo-popup">
+      {thumbnail && (
+        <div className="popup-image-container">
+          <img
+            src={thumbnail}
+            alt={photo.name}
+            className="popup-image"
+            onClick={() => onPhotoSelect(index)}
+          />
+        </div>
+      )}
+      <p className="photo-name">{photo.name}</p>
+      <p className="photo-path">{photo.relativePath}</p>
+      <p className="photo-date">
+        {new Date(photo.date).toLocaleString()}
+      </p>
+    </div>
+  );
+});
+
+const PhotosMap = React.memo(({ 
+  photos, 
+  thumbnailCache, 
+  onPhotoSelect, 
+  onAreaSelect, 
+  mapRef, 
+  featureGroupRef 
+}) => {
+  return (
+    <MapContainer
+      center={[0, 0]}
+      zoom={2}
+      style={{ height: '100%', width: '100%' }}
+      ref={mapRef}
+    >
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      />
+      <FeatureGroup ref={featureGroupRef}>
+        <EditControl
+          position="topright"
+          onCreated={onAreaSelect}
+          draw={{
+            rectangle: true,
+            circle: false,
+            circlemarker: false,
+            marker: false,
+            polyline: false,
+            polygon: false,
+          }}
+          edit={{
+            edit: false,
+            remove: false,
+          }}
+        />
+      </FeatureGroup>
+      <MarkerClusterGroup
+        chunkedLoading
+        maxClusterRadius={50}
+      >
+        {photos.map((photo, index) => (
+          <Marker
+            key={photo.relativePath}
+            position={[photo.latitude, photo.longitude]}
+          >
+            <Popup>
+              <PhotoPopup
+                photo={photo}
+                thumbnail={thumbnailCache.get(photo.relativePath)}
+                onPhotoSelect={onPhotoSelect}
+                index={index}
+              />
+            </Popup>
+          </Marker>
+        ))}
+      </MarkerClusterGroup>
+    </MapContainer>
+  );
+});
+
 function App() {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -282,6 +375,25 @@ function App() {
     };
   }, []);
 
+  // Memoize handler functions
+  const handlePhotoSelectMemoized = React.useCallback((index) => {
+    const photo = photos[index];
+    
+    // Load thumbnail if not in cache
+    if (!thumbnailCache.has(photo.relativePath) && dirHandleRef.current) {
+      loadThumbnail(photo, dirHandleRef.current).then(thumbnail => {
+        if (thumbnail) {
+          setThumbnailCache(prev => new Map(prev).set(photo.relativePath, thumbnail));
+        }
+      });
+    }
+    
+    setSelectedPhoto(index);
+    if (mapRef.current) {
+      mapRef.current.setView([photo.latitude, photo.longitude], 12);
+    }
+  }, [photos, thumbnailCache]);
+
   // Initialize intersection observer
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
@@ -291,7 +403,7 @@ function App() {
             const photoIndex = parseInt(entry.target.dataset.index);
             const photo = photos[photoIndex];
             if (photo && !thumbnailCache.has(photo.relativePath) && dirHandleRef.current) {
-              handlePhotoSelect(photoIndex);
+              handlePhotoSelectMemoized(photoIndex);
             }
           }
         });
@@ -304,7 +416,7 @@ function App() {
         observerRef.current.disconnect();
       }
     };
-  }, [photos, thumbnailCache]);
+  }, [photos, thumbnailCache, handlePhotoSelectMemoized]);
 
   // Load initial visible thumbnails
   useEffect(() => {
@@ -312,10 +424,10 @@ function App() {
       // Load first N thumbnails immediately
       const initialLoadCount = Math.min(20, photos.length);
       for (let i = 0; i < initialLoadCount; i++) {
-        handlePhotoSelect(i);
+        handlePhotoSelectMemoized(i);
       }
     }
-  }, [photos]);
+  }, [photos, handlePhotoSelectMemoized]);
 
   // Update observer entries when photos change
   useEffect(() => {
@@ -618,24 +730,7 @@ function App() {
     }
   };
 
-  const handlePhotoSelect = async (index) => {
-    const photo = photos[index];
-    
-    // Load thumbnail if not in cache
-    if (!thumbnailCache.has(photo.relativePath) && dirHandleRef.current) {
-      const thumbnail = await loadThumbnail(photo, dirHandleRef.current);
-      if (thumbnail) {
-        setThumbnailCache(prev => new Map(prev).set(photo.relativePath, thumbnail));
-      }
-    }
-    
-    setSelectedPhoto(index);
-    if (mapRef.current) {
-      mapRef.current.setView([photo.latitude, photo.longitude], 12);
-    }
-  };
-
-  const handleAreaSelect = async (e) => {
+  const handleAreaSelectMemoized = React.useCallback(async (e) => {
     const bounds = e.layer.getBounds();
     const selectedPhotos = photos.filter(photo => {
       const latLng = L.latLng(photo.latitude, photo.longitude);
@@ -695,15 +790,23 @@ function App() {
       setDownloading(false);
       featureGroupRef.current.clearLayers();
     }
-  };
+  }, [photos]);
 
   return (
     <div className="App">
       <div className="sidebar">
         <div className="controls">
           <button onClick={handleScan} disabled={loading}>
-            {loading ? `${status} ${progress > 0 ? `${progress}% (${processedPhotos}/${totalPhotos})` : ''}` : 'Select Directory'}
+            {loading ? 'Scanning...' : 'Select Directory'}
           </button>
+          {loading && (
+            <ScanProgress
+              status={status}
+              progress={progress}
+              processedPhotos={processedPhotos}
+              totalPhotos={totalPhotos}
+            />
+          )}
           {error && <div className="error">{error}</div>}
           {downloading && <div className="downloading">Creating zip file...</div>}
         </div>
@@ -711,108 +814,48 @@ function App() {
         <div className="photos-list">
           <h3>Photos with GPS Data ({photos.length})</h3>
           <p className="help-text">Draw a rectangle on the map to select and download photos from that area.</p>
-          {loading ? (
-            <div className="scanning-message">
-              {status}<br/>
-              {progress > 0 && `Progress: ${progress}%`}<br/>
-              {processedPhotos > 0 && `Processed: ${processedPhotos}/${totalPhotos} photos`}
-            </div>
-          ) : (
-            <div className="photo-items">
-              {photos.map((photo, index) => (
-                <div 
-                  key={index}
-                  ref={el => photoRefs.current.set(index, el)}
-                  data-index={index}
-                  className={`photo-item ${selectedPhoto === index ? 'selected' : ''}`}
-                  onClick={() => handlePhotoSelect(index)}
-                >
-                  {thumbnailCache.has(photo.relativePath) ? (
-                    <img
-                      src={thumbnailCache.get(photo.relativePath)}
-                      alt={photo.relativePath}
-                      className="thumbnail"
-                    />
-                  ) : (
-                    <div className="thumbnail-placeholder">
-                      Loading...
-                    </div>
-                  )}
-                  <div className="photo-info">
-                    <div className="photo-name">{photo.name}</div>
-                    <div className="photo-path">{photo.relativePath}</div>
-                    <div className="photo-date">
-                      {new Date(photo.date).toLocaleString()}
-                    </div>
+          <div className="photo-items">
+            {photos.map((photo, index) => (
+              <div 
+                key={index}
+                ref={el => photoRefs.current.set(index, el)}
+                data-index={index}
+                className={`photo-item ${selectedPhoto === index ? 'selected' : ''}`}
+                onClick={() => handlePhotoSelectMemoized(index)}
+              >
+                {thumbnailCache.has(photo.relativePath) ? (
+                  <img
+                    src={thumbnailCache.get(photo.relativePath)}
+                    alt={photo.relativePath}
+                    className="thumbnail"
+                  />
+                ) : (
+                  <div className="thumbnail-placeholder">
+                    Loading...
+                  </div>
+                )}
+                <div className="photo-info">
+                  <div className="photo-name">{photo.name}</div>
+                  <div className="photo-path">{photo.relativePath}</div>
+                  <div className="photo-date">
+                    {new Date(photo.date).toLocaleString()}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="map-container">
-        <MapContainer
-          center={[0, 0]}
-          zoom={2}
-          style={{ height: '100%', width: '100%' }}
-          ref={mapRef}
-        >
-          <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          />
-          <FeatureGroup ref={featureGroupRef}>
-            <EditControl
-              position="topright"
-              onCreated={handleAreaSelect}
-              draw={{
-                rectangle: true,
-                circle: false,
-                circlemarker: false,
-                marker: false,
-                polyline: false,
-                polygon: false,
-              }}
-              edit={{
-                edit: false,
-                remove: false,
-              }}
-            />
-          </FeatureGroup>
-          <MarkerClusterGroup
-            chunkedLoading
-            maxClusterRadius={50}
-          >
-            {photos.map((photo, index) => (
-              <Marker
-                key={index}
-                position={[photo.latitude, photo.longitude]}
-              >
-                <Popup>
-                  <div className="photo-popup">
-                    {thumbnailCache.has(photo.relativePath) && (
-                      <div className="popup-image-container">
-                        <img
-                          src={thumbnailCache.get(photo.relativePath)}
-                          alt={photo.name}
-                          className="popup-image"
-                          onClick={() => handlePhotoSelect(index)}
-                        />
-                      </div>
-                    )}
-                    <p className="photo-name">{photo.name}</p>
-                    <p className="photo-path">{photo.relativePath}</p>
-                    <p className="photo-date">
-                      {new Date(photo.date).toLocaleString()}
-                    </p>
-                  </div>
-                </Popup>
-              </Marker>
-            ))}
-          </MarkerClusterGroup>
-        </MapContainer>
+        <PhotosMap
+          photos={photos}
+          thumbnailCache={thumbnailCache}
+          onPhotoSelect={handlePhotoSelectMemoized}
+          onAreaSelect={handleAreaSelectMemoized}
+          mapRef={mapRef}
+          featureGroupRef={featureGroupRef}
+        />
       </div>
     </div>
   );
