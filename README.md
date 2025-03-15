@@ -1,70 +1,84 @@
-# Getting Started with Create React App
+# Photos Locator
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A powerful web application that helps you visualize and organize your photos on a map based on their geolocation data. This tool is perfect for photographers, travelers, and anyone who wants to explore their photo collection in a geographical context.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- **Interactive Map Interface**: Visualize your photos on an interactive map using Leaflet
+- **EXIF Data Extraction**: Automatically extracts location data from photo metadata
+- **Batch Processing**: Efficiently process multiple photos simultaneously using Web Workers
+- **Clustering**: Groups nearby photos into clusters for better visualization
+- **Area Selection**: Select specific areas on the map to filter photos
+- **Thumbnail Generation**: Creates and manages photo thumbnails for faster loading
+- **Local Storage**: Save and load your photo collections locally
+- **Responsive Design**: Works seamlessly on both desktop and mobile devices
 
-### `npm start`
+## Technology Stack
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- **Frontend Framework**: React.js
+- **Map Library**: Leaflet with React-Leaflet integration
+- **Clustering**: react-leaflet-cluster for marker clustering
+- **Drawing Tools**: react-leaflet-draw for area selection
+- **EXIF Processing**: exif-js for metadata extraction
+- **File Handling**: JSZip for managing photo collections
+- **Performance**: Web Workers for parallel processing
+- **Styling**: Custom CSS with responsive design
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Getting Started
 
-### `npm test`
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Start the development server:
+   ```bash
+   npm start
+   ```
+4. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Usage
 
-### `npm run build`
+1. Click the "Scan Photos" button to select photos from your device
+2. The app will process your photos and extract location data
+3. Photos will appear as markers on the map
+4. Use the clustering feature to manage large collections
+5. Draw areas on the map to filter photos by location
+6. Click on markers to view photo thumbnails and details
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Performance Features
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+- Parallel processing using Web Workers
+- Efficient thumbnail generation and caching
+- Marker clustering for handling large datasets
+- Optimized image loading and processing
+- Batch processing with configurable batch sizes
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Technical Details
 
-### `npm run eject`
+- Supports multiple image formats
+- Processes EXIF metadata for location information
+- Converts DMS (Degrees, Minutes, Seconds) to decimal coordinates
+- Implements efficient memory management for large collections
+- Uses local storage for saving session data
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+## Browser Support
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+- Chrome (recommended)
+- Firefox
+- Safari
+- Edge
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+## Contributing
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## Learn More
+## License
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+This project is open source and available under the MIT License.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Acknowledgments
 
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- Leaflet.js for the mapping functionality
+- React community for the excellent ecosystem
+- Contributors and users of the project
