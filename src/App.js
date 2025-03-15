@@ -911,8 +911,11 @@ function App() {
         mapRef.current?.fitBounds(bounds, { padding: [50, 50] });
       }
     } catch (err) {
-      setError(err.message);
-      console.error('Scan error:', err);
+      // Don't show error if user just cancelled the directory picker
+      if (err.name !== 'AbortError') {
+        setError(err.message);
+        console.error('Scan error:', err);
+      }
     } finally {
       setLoading(false);
       setProgress(0);
