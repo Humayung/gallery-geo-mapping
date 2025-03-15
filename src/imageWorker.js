@@ -42,7 +42,7 @@ async function processImage(imageData) {
 
   // Create thumbnail
   const img = await createImageBitmap(file);
-  const MAX_SIZE = 100;
+  const MAX_SIZE = 200;
   let width = img.width;
   let height = img.height;
   

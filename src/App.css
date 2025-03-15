@@ -147,24 +147,29 @@
 }
 
 .thumbnail {
-  width: 80px;
-  height: 80px;
+  width: 160px;
+  height: 160px;
   object-fit: cover;
   border-radius: 4px;
   margin-right: 15px;
 }
 
 .thumbnail-placeholder {
-  width: 80px;
-  height: 80px;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #f5f5f5;
-  border-radius: 4px;
-  margin-right: 15px;
-  color: #666;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  color: #7f8c8d;
   font-size: 14px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
 }
 
 .photo-info {
@@ -202,22 +207,87 @@
 }
 
 .photo-popup {
-  min-width: 200px;
-  max-width: 300px;
+  min-width: 250px;
+  max-width: 350px;
+  padding: 0;
+  margin: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .popup-image-container {
-  margin: -13px -19px 10px;
+  margin: 0;
+  position: relative;
+  width: 100%;
+  height: 200px;
+  overflow: hidden;
+  background: #f5f5f5;
 }
 
 .popup-image {
   width: 100%;
-  cursor: pointer;
-  transition: opacity 0.2s;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
 }
 
 .popup-image:hover {
-  opacity: 0.9;
+  transform: scale(1.05);
+  opacity: 0.95;
+}
+
+.photo-popup .photo-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin: 12px 16px 4px;
+  padding: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.photo-popup .photo-path {
+  font-size: 13px;
+  color: #7f8c8d;
+  margin: 0 16px 4px;
+  padding: 0;
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.photo-popup .photo-date {
+  font-size: 12px;
+  color: #95a5a6;
+  margin: 0 16px 12px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.photo-popup .photo-date::before {
+  content: "📅";
+  font-size: 14px;
+}
+
+.leaflet-popup-content {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup-content-wrapper {
+  padding: 0 !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
+
+.leaflet-popup-tip-container {
+  margin-top: -1px;
 }
 
 .image-viewer-overlay {

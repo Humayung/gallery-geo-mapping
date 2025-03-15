@@ -83,7 +83,7 @@ async function createThumbnail(file) {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
-        const MAX_SIZE = 100;
+        const MAX_SIZE = 200;
         let width = img.width;
         let height = img.height;
         
