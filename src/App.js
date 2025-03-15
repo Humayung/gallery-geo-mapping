@@ -265,17 +265,29 @@ function ScanProgress({ status, progress, processedPhotos, totalPhotos }) {
   );
 }
 
-const PhotoPopup = React.memo(({ photo, thumbnail, onPhotoSelect, index }) => {
+const PhotoPopup = React.memo(({ photo, thumbnail, onPhotoSelect, index, onThumbnailNeeded }) => {
+  React.useEffect(() => {
+    if (!thumbnail && onThumbnailNeeded) {
+      onThumbnailNeeded(photo);
+    }
+  }, [photo, thumbnail, onThumbnailNeeded]);
+
   return (
     <div className="photo-popup">
-      {thumbnail && (
+      {thumbnail ? (
         <div className="popup-image-container">
           <img
             src={thumbnail}
             alt={photo.name}
             className="popup-image"
-            onClick={() => onPhotoSelect(index)}
+            onClick={() => onPhotoSelect(index, false)}
           />
+        </div>
+      ) : (
+        <div className="popup-image-container">
+          <div className="thumbnail-placeholder">
+            Loading...
+          </div>
         </div>
       )}
       <p className="photo-name">{photo.name}</p>
@@ -293,7 +305,8 @@ const PhotosMap = React.memo(({
   onPhotoSelect, 
   onAreaSelect, 
   mapRef, 
-  featureGroupRef 
+  featureGroupRef,
+  onThumbnailNeeded
 }) => {
   return (
     <MapContainer
@@ -338,6 +351,7 @@ const PhotosMap = React.memo(({
                 photo={photo}
                 thumbnail={thumbnailCache.get(photo.relativePath)}
                 onPhotoSelect={onPhotoSelect}
+                onThumbnailNeeded={onThumbnailNeeded}
                 index={index}
               />
             </Popup>
@@ -376,7 +390,7 @@ function App() {
   }, []);
 
   // Memoize handler functions
-  const handlePhotoSelectMemoized = React.useCallback((index) => {
+  const handlePhotoSelectMemoized = React.useCallback((index, shouldUpdateView = true) => {
     const photo = photos[index];
     
     // Load thumbnail if not in cache
@@ -388,11 +402,25 @@ function App() {
       });
     }
     
-    setSelectedPhoto(index);
-    if (mapRef.current) {
-      mapRef.current.setView([photo.latitude, photo.longitude], 12);
+    // Only update view and selected photo if shouldUpdateView is true
+    if (shouldUpdateView) {
+      setSelectedPhoto(index);
+      if (mapRef.current) {
+        mapRef.current.setView([photo.latitude, photo.longitude], 12);
+      }
     }
   }, [photos, thumbnailCache]);
+
+  // Add a new handler for thumbnail loading
+  const handleThumbnailNeeded = React.useCallback((photo) => {
+    if (!thumbnailCache.has(photo.relativePath) && dirHandleRef.current) {
+      loadThumbnail(photo, dirHandleRef.current).then(thumbnail => {
+        if (thumbnail) {
+          setThumbnailCache(prev => new Map(prev).set(photo.relativePath, thumbnail));
+        }
+      });
+    }
+  }, [thumbnailCache]);
 
   // Initialize intersection observer
   useEffect(() => {
@@ -403,7 +431,7 @@ function App() {
             const photoIndex = parseInt(entry.target.dataset.index);
             const photo = photos[photoIndex];
             if (photo && !thumbnailCache.has(photo.relativePath) && dirHandleRef.current) {
-              handlePhotoSelectMemoized(photoIndex);
+              handlePhotoSelectMemoized(photoIndex, false); // Don't update view for lazy loading
             }
           }
         });
@@ -424,7 +452,7 @@ function App() {
       // Load first N thumbnails immediately
       const initialLoadCount = Math.min(20, photos.length);
       for (let i = 0; i < initialLoadCount; i++) {
-        handlePhotoSelectMemoized(i);
+        handlePhotoSelectMemoized(i, false); // Don't update view for initial loading
       }
     }
   }, [photos, handlePhotoSelectMemoized]);
@@ -853,6 +881,7 @@ function App() {
           thumbnailCache={thumbnailCache}
           onPhotoSelect={handlePhotoSelectMemoized}
           onAreaSelect={handleAreaSelectMemoized}
+          onThumbnailNeeded={handleThumbnailNeeded}
           mapRef={mapRef}
           featureGroupRef={featureGroupRef}
         />
