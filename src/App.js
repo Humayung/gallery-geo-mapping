@@ -988,88 +988,115 @@ function App() {
 
   return (
     <div className="App">
-      <div className="sidebar">
-        <div className="controls">
-          <button onClick={handleScan} disabled={loading}>
-            {loading ? 'Scanning...' : 'Select Directory'}
-          </button>
-          {loading && (
-            <ScanProgress
-              status={status}
-              progress={progress}
-              processedPhotos={processedPhotos}
-              totalPhotos={totalPhotos}
-            />
-          )}
-          {error && <div className="error">{error}</div>}
-          {downloading && <div className="downloading">Creating zip file...</div>}
-        </div>
-        
-        <div className="photos-list">
-          <h3>Photos with GPS Data ({photos.length})</h3>
-          <p className="help-text">Draw a rectangle on the map to select and download photos from that area.</p>
-          <div className="photo-items" style={{ maxHeight: 'calc(100vh - 150px)', overflowY: 'auto' }}>
-            {photos.map((photo, index) => (
-              <div 
-                key={photo.relativePath}
-                ref={el => {
-                  if (el) {
-                    photoRefs.current.set(index, el);
-                    if (observerRef.current) {
-                      observerRef.current.observe(el);
-                    }
-                  }
-                }}
-                data-index={index}
-                className={`photo-item ${selectedPhoto === index ? 'selected' : ''}`}
-                onClick={() => handlePhotoSelectMemoized(index)}
-              >
-                {thumbnailCache.has(photo.relativePath) ? (
-                  <img
-                    src={thumbnailCache.get(photo.relativePath)}
-                    alt={photo.relativePath}
-                    className="thumbnail"
-                  />
-                ) : (
-                  <div className="thumbnail-placeholder">
-                    Loading...
-                  </div>
-                )}
-                <div className="photo-info">
-                  <div className="photo-name">{photo.name}</div>
-                  <div className="photo-path">{photo.relativePath}</div>
-                  <div className="photo-date">
-                    {new Date(photo.date).toLocaleString()}
-                  </div>
-                </div>
-              </div>
-            ))}
+      {photos.length === 0 ? (
+        <div className="welcome-screen">
+          <div className="welcome-content">
+            <h1>Photos Locator</h1>
+            <p>View and organize your photos on a map based on their GPS location</p>
+            <button 
+              onClick={handleScan} 
+              disabled={loading}
+              className="welcome-button"
+            >
+              {loading ? 'Scanning...' : '📁 Select Photo Directory'}
+            </button>
+            {loading && (
+              <ScanProgress
+                status={status}
+                progress={progress}
+                processedPhotos={processedPhotos}
+                totalPhotos={totalPhotos}
+              />
+            )}
+            {error && <div className="error">{error}</div>}
           </div>
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="sidebar">
+            <div className="controls">
+              <button onClick={handleScan} disabled={loading}>
+                {loading ? 'Scanning...' : 'Select Directory'}
+              </button>
+              {loading && (
+                <ScanProgress
+                  status={status}
+                  progress={progress}
+                  processedPhotos={processedPhotos}
+                  totalPhotos={totalPhotos}
+                />
+              )}
+              {error && <div className="error">{error}</div>}
+              {downloading && <div className="downloading">Creating zip file...</div>}
+            </div>
+            
+            <div className="photos-list">
+              <h3>Photos with GPS Data ({photos.length})</h3>
+              <p className="help-text">Draw a rectangle on the map to select and download photos from that area.</p>
+              <div className="photo-items" style={{ maxHeight: 'calc(100vh - 150px)', overflowY: 'auto' }}>
+                {photos.map((photo, index) => (
+                  <div 
+                    key={photo.relativePath}
+                    ref={el => {
+                      if (el) {
+                        photoRefs.current.set(index, el);
+                        if (observerRef.current) {
+                          observerRef.current.observe(el);
+                        }
+                      }
+                    }}
+                    data-index={index}
+                    className={`photo-item ${selectedPhoto === index ? 'selected' : ''}`}
+                    onClick={() => handlePhotoSelectMemoized(index)}
+                  >
+                    {thumbnailCache.has(photo.relativePath) ? (
+                      <img
+                        src={thumbnailCache.get(photo.relativePath)}
+                        alt={photo.relativePath}
+                        className="thumbnail"
+                      />
+                    ) : (
+                      <div className="thumbnail-placeholder">
+                        Loading...
+                      </div>
+                    )}
+                    <div className="photo-info">
+                      <div className="photo-name">{photo.name}</div>
+                      <div className="photo-path">{photo.relativePath}</div>
+                      <div className="photo-date">
+                        {new Date(photo.date).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
 
-      <div className="map-container">
-        <PhotosMap
-          photos={photos}
-          thumbnailCache={thumbnailCache}
-          onPhotoSelect={handlePhotoSelectMemoized}
-          onAreaSelect={handleAreaSelectMemoized}
-          onThumbnailNeeded={handleThumbnailNeeded}
-          onViewFullImage={setSelectedFullImage}
-          mapRef={mapRef}
-          featureGroupRef={featureGroupRef}
-        />
-      </div>
+          <div className="map-container">
+            <PhotosMap
+              photos={photos}
+              thumbnailCache={thumbnailCache}
+              onPhotoSelect={handlePhotoSelectMemoized}
+              onAreaSelect={handleAreaSelectMemoized}
+              onThumbnailNeeded={handleThumbnailNeeded}
+              onViewFullImage={setSelectedFullImage}
+              mapRef={mapRef}
+              featureGroupRef={featureGroupRef}
+            />
+          </div>
 
-      {selectedFullImage && (
-        <ImageViewer
-          photo={selectedFullImage}
-          photos={photos}
-          onClose={() => setSelectedFullImage(null)}
-          onNavigate={setSelectedFullImage}
-          dirHandle={dirHandleRef.current}
-          mapRef={mapRef}
-        />
+          {selectedFullImage && (
+            <ImageViewer
+              photo={selectedFullImage}
+              photos={photos}
+              onClose={() => setSelectedFullImage(null)}
+              onNavigate={setSelectedFullImage}
+              dirHandle={dirHandleRef.current}
+              mapRef={mapRef}
+            />
+          )}
+        </>
       )}
     </div>
   );
