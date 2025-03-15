@@ -2,14 +2,16 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const exifr = require('exifr');
+const archiver = require('archiver');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 34567;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // Function to scan directory recursively
 async function scanDirectory(dirPath) {
@@ -85,6 +87,88 @@ app.get('/api/thumbnail/:path(*)', async (req, res) => {
   } catch (error) {
     res.status(404).json({ error: 'File not found' });
   }
+});
+
+// Create ZIP file endpoint
+app.post('/api/create-zip', (req, res) => {
+  const { photos } = req.body;
+  console.log(`Received zip creation request for ${photos?.length} photos`);
+  
+  if (!photos || !Array.isArray(photos) || photos.length === 0) {
+    return res.status(400).json({ error: 'No photos provided' });
+  }
+
+  // Create a unique filename for this download
+  const timestamp = new Date().getTime();
+  const zipFileName = `photos_${timestamp}.zip`;
+  const zipFilePath = path.join(__dirname, 'temp', zipFileName);
+
+  // Ensure temp directory exists
+  if (!fsSync.existsSync(path.join(__dirname, 'temp'))) {
+    fsSync.mkdirSync(path.join(__dirname, 'temp'));
+  }
+
+  // Create write stream for the zip file
+  const output = fsSync.createWriteStream(zipFilePath);
+  const archive = archiver('zip');
+
+  // Listen for all archive data to be written
+  output.on('close', () => {
+    console.log(`Archive created successfully: ${archive.pointer()} total bytes`);
+    res.json({ 
+      success: true, 
+      zipFileName: zipFileName,
+      message: 'ZIP file created successfully'
+    });
+  });
+
+  // Error handling
+  archive.on('error', (err) => {
+    console.error('Archive error:', err);
+    fsSync.unlink(zipFilePath, () => {
+      res.status(500).json({ error: 'Failed to create archive' });
+    });
+  });
+
+  // Pipe archive data to the file
+  archive.pipe(output);
+
+  // Add files to archive
+  photos.forEach(photo => {
+    const filePath = photo.path;
+    if (fsSync.existsSync(filePath)) {
+      archive.file(filePath, { name: path.basename(filePath) });
+    } else {
+      console.warn(`File not found: ${filePath}`);
+    }
+  });
+
+  // Finalize archive
+  archive.finalize();
+});
+
+// Download the created ZIP file
+app.get('/api/download-zip/:filename', (req, res) => {
+  const zipFileName = req.params.filename;
+  const zipFilePath = path.join(__dirname, 'temp', zipFileName);
+
+  if (!fsSync.existsSync(zipFilePath)) {
+    return res.status(404).json({ error: 'ZIP file not found' });
+  }
+
+  res.download(zipFilePath, 'selected_photos.zip', (err) => {
+    if (err) {
+      console.error('Error sending file:', err);
+      return res.status(500).json({ error: 'Failed to download file' });
+    }
+    
+    // Clean up: delete the temporary file after successful download
+    fsSync.unlink(zipFilePath, (unlinkErr) => {
+      if (unlinkErr) {
+        console.error('Error deleting temporary file:', unlinkErr);
+      }
+    });
+  });
 });
 
 app.listen(PORT, () => {

@@ -1,7 +1,9 @@
-import React, { useState, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import React, { useState, useRef, useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, FeatureGroup } from 'react-leaflet';
+import { EditControl } from 'react-leaflet-draw';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet-draw/dist/leaflet.draw.css';
 import L from 'leaflet';
 import './App.css';
 
@@ -19,7 +21,9 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
+  const [downloading, setDownloading] = useState(false);
   const mapRef = useRef(null);
+  const featureGroupRef = useRef(null);
 
   const handleScan = async () => {
     if (!directory) {
@@ -67,6 +71,55 @@ function App() {
     }
   };
 
+  const handleAreaSelect = async (e) => {
+    const bounds = e.layer.getBounds();
+    const selectedPhotos = photos.filter(photo => {
+      const latLng = L.latLng(photo.latitude, photo.longitude);
+      return bounds.contains(latLng);
+    });
+
+    if (selectedPhotos.length === 0) {
+      alert('No photos found in the selected area');
+      featureGroupRef.current.clearLayers();
+      return;
+    }
+
+    setDownloading(true);
+    try {
+      setError(null);
+      
+      // Step 1: Create the ZIP file
+      const createResponse = await fetch('http://localhost:34567/api/create-zip', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          photos: selectedPhotos
+        }),
+      });
+
+      if (!createResponse.ok) {
+        throw new Error('Failed to create ZIP file');
+      }
+
+      const { zipFileName } = await createResponse.json();
+      
+      // Step 2: Download the ZIP file
+      window.location.href = `http://localhost:34567/api/download-zip/${zipFileName}`;
+
+    } catch (err) {
+      console.error('Download error:', err);
+      setError('Failed to download photos. Please try again.');
+    } finally {
+      // Give some time for the download to start before clearing
+      setTimeout(() => {
+        setDownloading(false);
+        featureGroupRef.current.clearLayers();
+      }, 1000);
+    }
+  };
+
   return (
     <div className="App">
       <div className="sidebar">
@@ -82,10 +135,12 @@ function App() {
             {loading ? 'Scanning...' : 'Scan Directory'}
           </button>
           {error && <div className="error">{error}</div>}
+          {downloading && <div className="downloading">Creating zip file...</div>}
         </div>
         
         <div className="photos-list">
           <h3>Photos with GPS Data ({photos.length})</h3>
+          <p className="help-text">Draw a rectangle on the map to select and download photos from that area.</p>
           {loading ? (
             <div className="scanning-message">Scanning directory...</div>
           ) : (
@@ -125,6 +180,24 @@ function App() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           />
+          <FeatureGroup ref={featureGroupRef}>
+            <EditControl
+              position="topright"
+              onCreated={handleAreaSelect}
+              draw={{
+                rectangle: true,
+                circle: false,
+                circlemarker: false,
+                marker: false,
+                polyline: false,
+                polygon: false,
+              }}
+              edit={{
+                edit: false,
+                remove: false,
+              }}
+            />
+          </FeatureGroup>
           <MarkerClusterGroup
             chunkedLoading
             maxClusterRadius={50}

@@ -244,3 +244,38 @@ button:disabled {
   align-items: center;
   justify-content: center;
 }
+
+.help-text {
+  font-size: 14px;
+  color: #666;
+  margin: 0 0 15px 0;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+}
+
+.downloading {
+  margin-top: 10px;
+  padding: 10px;
+  background-color: #e3f2fd;
+  color: #0d47a1;
+  border-radius: 4px;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Override Leaflet Draw styles */
+.leaflet-draw-toolbar a {
+  background-color: white;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.leaflet-draw-toolbar a:hover {
+  background-color: #f4f4f4;
+}
+
+.leaflet-draw-actions {
+  display: none;
+}
