@@ -1,72 +1,70 @@
-# Photos Locator
+# Getting Started with Create React App
 
-A web application that scans photos in a directory, extracts their location information from EXIF data, and displays them on an interactive map.
+This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
-## Features
+## Available Scripts
 
-- Scan directories recursively for photos
-- Extract GPS coordinates from photo EXIF data
-- Display photos on an interactive map
-- View photo thumbnails and dates by clicking markers
-- Support for JPG, JPEG, PNG, and GIF files
+In the project directory, you can run:
 
-## Prerequisites
+### `npm start`
 
-- Node.js (v14 or higher)
-- npm (v6 or higher)
+Runs the app in the development mode.\
+Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
 
-## Installation
+The page will reload when you make changes.\
+You may also see any lint errors in the console.
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd photos-locator
-```
+### `npm test`
 
-2. Install backend dependencies:
-```bash
-npm install
-```
+Launches the test runner in the interactive watch mode.\
+See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
 
-3. Install frontend dependencies:
-```bash
-cd client
-npm install
-```
+### `npm run build`
 
-## Running the Application
+Builds the app for production to the `build` folder.\
+It correctly bundles React in production mode and optimizes the build for the best performance.
 
-1. Start the backend server:
-```bash
-# From the root directory
-npm run dev
-```
+The build is minified and the filenames include the hashes.\
+Your app is ready to be deployed!
 
-2. Start the frontend development server:
-```bash
-# From the root directory
-npm run client
-```
+See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
 
-Or run both simultaneously:
-```bash
-npm run dev:full
-```
+### `npm run eject`
 
-The application will be available at:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:34567
+**Note: this is a one-way operation. Once you `eject`, you can't go back!**
 
-## Usage
+If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
 
-1. Enter the full path to the directory containing your photos in the input field
-2. Click "Scan Directory" to start scanning for photos
-3. Wait for the scanning process to complete
-4. View your photos on the map by clicking the markers
-5. Each marker shows a thumbnail and the date the photo was taken
+Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
 
-## Notes
+You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
 
-- The application only processes photos that have GPS coordinates in their EXIF data
-- Large directories may take some time to scan
-- Make sure you have read permissions for the directory you want to scan 
+## Learn More
+
+You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+
+To learn React, check out the [React documentation](https://reactjs.org/).
+
+### Code Splitting
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+
+### Analyzing the Bundle Size
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+
+### Making a Progressive Web App
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+
+### Advanced Configuration
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+
+### Deployment
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+
+### `npm run build` fails to minify
+
+This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
